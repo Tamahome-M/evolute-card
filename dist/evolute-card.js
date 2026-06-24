@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.6";
+const EVOLUTE_CARD_VERSION = "1.0.7";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -18,6 +18,7 @@ const KEYS = {
   voltage_12v: "voltage_12v",
   outside_temp: "outside_temp",
   inboard_temp: "inboard_temp",
+  climate_target: "climate_target_temp",
   data_time: "sensor_time",
   vin: "vin",
   // binary sensors
@@ -213,7 +214,7 @@ class EvoluteCard extends HTMLElement {
     // Repaint only when something visible changes.
     const roles = ["odometer", "online", "battery_pct", "remains_mileage",
       "fuel_pct", "remains_mileage_fuel", "coolant_temp", "voltage_12v",
-      "outside_temp", "inboard_temp", "data_time", "lock", "trunk", "prepare_running",
+      "outside_temp", "inboard_temp", "climate_target", "data_time", "lock", "trunk", "prepare_running",
       "p_temp", "p_duration", "p_fl", "p_fr", "p_rl", "p_rr", "p_wheel"];
     return this._deviceId + "|" + roles.map((r) => this._val(r)).join(",");
   }
@@ -250,10 +251,10 @@ class EvoluteCard extends HTMLElement {
     const preparing = this._val("prepare_running") === "on";
 
     const cells = [
-      ["coolant_temp", "mdi:thermometer-water", num("coolant_temp", 1) + "°C"],
-      ["voltage_12v", "mdi:car-battery", num("voltage_12v", 2) + " В"],
-      ["outside_temp", "mdi:weather-partly-cloudy", num("outside_temp", 1) + "°C"],
-      ["inboard_temp", "mdi:car-seat", num("inboard_temp", 1) + "°C"],
+      ["coolant_temp", "mdi:thermometer-water", num("coolant_temp", 1) + "°C", false],
+      ["voltage_12v", "mdi:car-battery", num("voltage_12v", 2) + " В", false],
+      ["outside_temp", "mdi:weather-partly-cloudy", num("outside_temp", 1) + "°C", false],
+      ["inboard_temp", "mdi:air-conditioner", this._cabinValue(), true],
     ].filter(([r]) => this._has(r));
 
     this.shadowRoot.innerHTML = `
@@ -281,8 +282,8 @@ class EvoluteCard extends HTMLElement {
             ${this._barVal(num("battery_pct", 0) + "% / " + num("remains_mileage", 0) + "км")}
           </div>
 
-          ${cells.length ? `<div class="cells">${cells.map(([r, ic, txt]) => `
-            <div class="cell" data-act="mi" data-role="${r}">
+          ${cells.length ? `<div class="cells">${cells.map(([r, ic, txt, center]) => `
+            <div class="cell${center ? " cell--center" : ""}" data-act="mi" data-role="${r}">
               <div class="cv">${txt}</div>
               <ha-icon class="cl" icon="${ic}"></ha-icon>
             </div>`).join("")}</div>` : ""}
@@ -313,6 +314,26 @@ class EvoluteCard extends HTMLElement {
       <div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
   }
   _barVal(txt) { return `<div class="barval">${txt}</div>`; }
+
+  // Cabin: "current° → target°". Current is colored vs the climate target:
+  //   red if hotter than target by >2°, blue if colder than target,
+  //   normal (white) when within [target; target+2]. Target is always white.
+  //   With no active climate target, shows just "current°C".
+  _cabinValue() {
+    const cur = this._num("inboard_temp", 1);
+    if (cur == null) return "—";
+    const tRaw = this._val("climate_target");
+    const tgt = (this._has("climate_target") && !UNAVAILABLE.has(tRaw)) ? Number(tRaw) : NaN;
+    if (!Number.isFinite(tgt)) return `${cur}°C`;
+    const curN = Number(cur);
+    let color = "var(--primary-text-color)";
+    if (curN > tgt + 2) color = "var(--error-color, #f44336)";
+    else if (curN < tgt) color = "var(--info-color, #5aa9ff)";
+    const tgtTxt = tgt % 1 ? tgt.toFixed(1) : String(Math.round(tgt));
+    return `<span style="color:${color}">${cur}°</span>`
+      + `<span class="arrow">→</span>`
+      + `<span class="tgt">${tgtTxt}°</span>`;
+  }
 
   _lang() {
     return (this._hass.locale && this._hass.locale.language) || "ru";
@@ -533,7 +554,10 @@ class EvoluteCard extends HTMLElement {
       .barval { font-size: 20px; font-weight: 500; }
       .cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
       .cell { cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+      .cell--center { align-items: center; text-align: center; }
       .cv { font-size: 18px; font-weight: 500; color: var(--primary-text-color); }
+      .cv .arrow { color: var(--secondary-text-color); margin: 0 2px; }
+      .cv .tgt { color: var(--primary-text-color); }
       .cl { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
       .ctrls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
       .ctrl { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; align-items: center;
