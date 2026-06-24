@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.0";
+const EVOLUTE_CARD_VERSION = "1.0.1";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -61,6 +61,9 @@ class EvoluteCard extends HTMLElement {
     this._config = config || {};
     this._deviceId = null;
     this._sig = "";
+    // Runtime open-state of the prepare panel; seeded from config, then driven
+    // by the user. Persisted across re-renders so it doesn't collapse on click.
+    this._prepOpen = !!this._config.prepare_open;
   }
 
   getCardSize() {
@@ -290,6 +293,7 @@ class EvoluteCard extends HTMLElement {
 
     this._bind();
     this._built = true;
+    this._mapEl = null;   // old map (if any) was destroyed by the innerHTML rebuild
     this._syncMap();
   }
 
@@ -329,7 +333,7 @@ class EvoluteCard extends HTMLElement {
         <ha-icon icon="mdi:steering"></ha-icon><span>Руль</span></button>`;
     };
     return `
-      <details class="prep" ${this._config.prepare_open ? "open" : ""}>
+      <details class="prep" ${this._prepOpen ? "open" : ""}>
         <summary><ha-icon icon="mdi:tune"></ha-icon> Параметры предпрогрева</summary>
         <div class="prow">
           <div class="plab">Температура</div>${stepper("p_temp", "°C")}
@@ -344,6 +348,8 @@ class EvoluteCard extends HTMLElement {
   }
 
   _bind() {
+    const det = this.shadowRoot.querySelector("details.prep");
+    if (det) det.addEventListener("toggle", () => { this._prepOpen = det.open; });
     this.shadowRoot.querySelectorAll("[data-act]").forEach((el) => {
       const act = el.getAttribute("data-act");
       const role = el.getAttribute("data-role");
