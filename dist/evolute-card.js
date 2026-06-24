@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.4";
+const EVOLUTE_CARD_VERSION = "1.0.5";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -408,10 +408,26 @@ class EvoluteCard extends HTMLElement {
   }
 
   // Lazily create & feed the <ha-map> element (optional).
+  //
+  // ha-map ships in a lazy-loaded chunk that HA only fetches when a stock `map`
+  // card is present on a dashboard. If it isn't registered yet, we force-load it
+  // via the stock map card helper (which pulls ha-map in), then retry — instead
+  // of creating an "unknown element" that renders blank.
   _syncMap() {
     if (!this._config.show_map || !this._has("tracker")) { this._mapEl = null; return; }
     const holder = this.shadowRoot.getElementById("evmap");
     if (!holder) return;
+
+    if (!customElements.get("ha-map")) {
+      holder.style.display = "none";          // no reserved blank gap while loading
+      this._ensureHaMap().then(() => {
+        // re-run once the element is registered (holder may have been rebuilt)
+        if (this._config.show_map) this._syncMap();
+      });
+      return;
+    }
+    holder.style.display = "";
+
     if (!this._mapEl) {
       try {
         this._mapEl = document.createElement("ha-map");
@@ -426,6 +442,34 @@ class EvoluteCard extends HTMLElement {
     this._mapEl.entities = [this._eid("tracker")];
     this._mapEl.autoFit = true;
     if (this._config.map_zoom) this._mapEl.zoom = this._config.map_zoom;
+  }
+
+  // Trigger HA to load the chunk that defines <ha-map>.
+  _ensureHaMap() {
+    if (this._haMapPromise) return this._haMapPromise;
+    this._haMapPromise = (async () => {
+      try {
+        const helpers = await window.loadCardHelpers?.();
+        if (helpers) {
+          // Creating a stock map card element pulls in the ha-map chunk.
+          const el = await helpers.createCardElement({ type: "map", entities: [] });
+          el.hass = this._hass;
+          // attach briefly off-screen so its lazy import kicks in
+          el.style.position = "absolute";
+          el.style.left = "-9999px";
+          el.style.width = el.style.height = "1px";
+          (this.shadowRoot || document.body).appendChild(el);
+          await customElements.whenDefined("ha-map");
+          el.remove();
+        } else {
+          await customElements.whenDefined("ha-map");
+        }
+      } catch (e) {
+        // last resort: just wait for it to appear if some other card loads it
+        try { await customElements.whenDefined("ha-map"); } catch (_) {}
+      }
+    })();
+    return this._haMapPromise;
   }
 
   _escape(s) {
@@ -488,7 +532,6 @@ class EvoluteCard extends HTMLElement {
               font-size: 12px; color: var(--secondary-text-color); }
       .foot ha-icon { --mdc-icon-size: 16px; }
       .map { margin: 4px 0 0; }
-      .map:empty { display: none; }
     </style>`;
   }
 }
