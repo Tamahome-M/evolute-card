@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.2";
+const EVOLUTE_CARD_VERSION = "1.0.4";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -262,6 +262,8 @@ class EvoluteCard extends HTMLElement {
             </div>
           </div>
 
+          ${this._dataTimeRow()}
+
           <div class="bars">
             ${hasFuel ? this._bar("mdi:fuel", fuelPct) : ""}
             ${this._bar("mdi:lightning-bolt", battPct)}
@@ -286,8 +288,6 @@ class EvoluteCard extends HTMLElement {
           </div>
 
           ${this._preparePanel()}
-
-          ${this._dataTimeRow()}
         </div>
         ${this._config.show_map && this._has("tracker") ? `<div class="map" id="evmap"></div>` : ""}
       </ha-card>`;
@@ -484,10 +484,11 @@ class EvoluteCard extends HTMLElement {
       .seat.on { background: color-mix(in srgb, var(--warning-color, #e08b00) 28%, transparent); }
       .seat.on ha-icon { color: var(--warning-color, #e08b00); }
       .seat ha-icon { --mdc-icon-size: 18px; }
-      .foot { margin-top: 8px; display: flex; align-items: center; gap: 6px; cursor: pointer;
+      .foot { margin: -2px 0 2px; display: flex; align-items: center; gap: 6px; cursor: pointer;
               font-size: 12px; color: var(--secondary-text-color); }
       .foot ha-icon { --mdc-icon-size: 16px; }
-      .map { margin: 4px -0 -0; }
+      .map { margin: 4px 0 0; }
+      .map:empty { display: none; }
     </style>`;
   }
 }
