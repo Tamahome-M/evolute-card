@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.5";
+const EVOLUTE_CARD_VERSION = "1.0.6";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -68,6 +68,16 @@ class EvoluteCard extends HTMLElement {
 
   getCardSize() {
     return this._config.show_map ? 8 : 5;
+  }
+
+  connectedCallback() {
+    if (!this._clock) {
+      this._clock = setInterval(() => this._refreshDataTime(), 30000);
+    }
+  }
+
+  disconnectedCallback() {
+    if (this._clock) { clearInterval(this._clock); this._clock = null; }
   }
 
   static getStubConfig() {
@@ -308,11 +318,12 @@ class EvoluteCard extends HTMLElement {
     return (this._hass.locale && this._hass.locale.language) || "ru";
   }
 
-  _dataTimeRow() {
+  // Returns {abs, rel, color} for the telemetry timestamp, or null.
+  _dataTimeInfo() {
     const s = this._st("data_time");
-    if (!s || UNAVAILABLE.has(s.state)) return "";
+    if (!s || UNAVAILABLE.has(s.state)) return null;
     const d = new Date(s.state);
-    if (isNaN(d.getTime())) return "";
+    if (isNaN(d.getTime())) return null;
     const lang = this._lang();
     const abs = d.toLocaleString(lang, {
       day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
@@ -330,10 +341,34 @@ class EvoluteCard extends HTMLElement {
         }
       }
     } catch (e) { /* Intl unavailable — show absolute only */ }
-    return `<div class="foot" data-act="mi" data-role="data_time">
+    // Freshness color by age of the data.
+    const ageMin = (Date.now() - d.getTime()) / 60000;
+    let color;
+    if (ageMin <= 2) color = "var(--success-color, #4caf50)";       // свежие
+    else if (ageMin <= 5) color = "#cddc39";                        // жёлто-зелёный
+    else if (ageMin <= 10) color = "var(--warning-color, #ff9800)"; // оранжевый
+    else color = "var(--error-color, #f44336)";                     // устарели
+    return { abs, rel, color };
+  }
+
+  _dataTimeRow() {
+    const i = this._dataTimeInfo();
+    if (!i) return "";
+    return `<div class="foot" data-act="mi" data-role="data_time" style="color:${i.color}">
       <ha-icon icon="mdi:timeline-clock"></ha-icon>
-      <span>Время данных: ${abs}${rel}</span>
+      <span>Время данных: ${i.abs}${i.rel}</span>
     </div>`;
+  }
+
+  // Update color + relative text in place, without a full re-render.
+  _refreshDataTime() {
+    const el = this.shadowRoot && this.shadowRoot.querySelector('.foot[data-role="data_time"]');
+    if (!el) return;
+    const i = this._dataTimeInfo();
+    if (!i) return;
+    el.style.color = i.color;
+    const span = el.querySelector("span");
+    if (span) span.textContent = `Время данных: ${i.abs}${i.rel}`;
   }
 
   _btn(role, icon, label, cls) {
