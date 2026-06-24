@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.1";
+const EVOLUTE_CARD_VERSION = "1.0.2";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -18,6 +18,7 @@ const KEYS = {
   voltage_12v: "voltage_12v",
   outside_temp: "outside_temp",
   inboard_temp: "inboard_temp",
+  data_time: "sensor_time",
   vin: "vin",
   // binary sensors
   online: "online",
@@ -28,7 +29,6 @@ const KEYS = {
   trunk_open: "trunk_open",
   trunk_close: "trunk_close",
   blink: "blink",
-  honk: "honk",
   prepare_on: "prepare_on",
   prepare_off: "prepare_off",
   // prepare params (numbers)
@@ -203,7 +203,7 @@ class EvoluteCard extends HTMLElement {
     // Repaint only when something visible changes.
     const roles = ["odometer", "online", "battery_pct", "remains_mileage",
       "fuel_pct", "remains_mileage_fuel", "coolant_temp", "voltage_12v",
-      "outside_temp", "inboard_temp", "lock", "trunk", "prepare_running",
+      "outside_temp", "inboard_temp", "data_time", "lock", "trunk", "prepare_running",
       "p_temp", "p_duration", "p_fl", "p_fr", "p_rl", "p_rr", "p_wheel"];
     return this._deviceId + "|" + roles.map((r) => this._val(r)).join(",");
   }
@@ -280,13 +280,14 @@ class EvoluteCard extends HTMLElement {
               locked ? "Закрыт" : "Открыт", locked ? "" : "warn") : ""}
             ${this._has("trunk_open") ? this._btn("trunk",
               "mdi:car-back", trunkOpen ? "Багажник открыт" : "Багажник", trunkOpen ? "warn" : "") : ""}
-            ${this._has("blink") ? this._btn("blink", "mdi:car-light-high", "Мигнуть", "") : ""}
-            ${this._has("honk") ? this._btn("honk", "mdi:bullhorn", "Клаксон", "") : ""}
+            ${this._has("blink") ? this._btn("blink", "mdi:car-light-high", "Сигнал и фары", "") : ""}
             ${this._has("prepare_on") ? this._btn("prepare", "mdi:car-clock",
               preparing ? "Предпрогрев…" : "Предпрогрев", preparing ? "active" : "") : ""}
           </div>
 
           ${this._preparePanel()}
+
+          ${this._dataTimeRow()}
         </div>
         ${this._config.show_map && this._has("tracker") ? `<div class="map" id="evmap"></div>` : ""}
       </ha-card>`;
@@ -302,6 +303,38 @@ class EvoluteCard extends HTMLElement {
       <div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
   }
   _barVal(txt) { return `<div class="barval">${txt}</div>`; }
+
+  _lang() {
+    return (this._hass.locale && this._hass.locale.language) || "ru";
+  }
+
+  _dataTimeRow() {
+    const s = this._st("data_time");
+    if (!s || UNAVAILABLE.has(s.state)) return "";
+    const d = new Date(s.state);
+    if (isNaN(d.getTime())) return "";
+    const lang = this._lang();
+    const abs = d.toLocaleString(lang, {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+    let rel = "";
+    try {
+      const rtf = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
+      const diff = (d.getTime() - Date.now()) / 1000;
+      const units = [["year", 31536000], ["month", 2592000], ["day", 86400],
+        ["hour", 3600], ["minute", 60], ["second", 1]];
+      for (const [u, sec] of units) {
+        if (Math.abs(diff) >= sec || u === "second") {
+          rel = " (" + rtf.format(Math.round(diff / sec), u) + ")";
+          break;
+        }
+      }
+    } catch (e) { /* Intl unavailable — show absolute only */ }
+    return `<div class="foot" data-act="mi" data-role="data_time">
+      <ha-icon icon="mdi:timeline-clock"></ha-icon>
+      <span>Время данных: ${abs}${rel}</span>
+    </div>`;
+  }
 
   _btn(role, icon, label, cls) {
     return `<button class="ctrl ${cls}" data-act="ctrl" data-role="${role}">
@@ -369,7 +402,6 @@ class EvoluteCard extends HTMLElement {
       case "trunk":
         this._press(this._val("trunk") === "on" ? "trunk_close" : "trunk_open"); break;
       case "blink": this._press("blink"); break;
-      case "honk": this._press("honk"); break;
       case "prepare":
         this._press(this._val("prepare_running") === "on" ? "prepare_off" : "prepare_on"); break;
     }
@@ -452,6 +484,9 @@ class EvoluteCard extends HTMLElement {
       .seat.on { background: color-mix(in srgb, var(--warning-color, #e08b00) 28%, transparent); }
       .seat.on ha-icon { color: var(--warning-color, #e08b00); }
       .seat ha-icon { --mdc-icon-size: 18px; }
+      .foot { margin-top: 8px; display: flex; align-items: center; gap: 6px; cursor: pointer;
+              font-size: 12px; color: var(--secondary-text-color); }
+      .foot ha-icon { --mdc-icon-size: 16px; }
       .map { margin: 4px -0 -0; }
     </style>`;
   }
