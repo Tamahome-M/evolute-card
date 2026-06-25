@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.7";
+const EVOLUTE_CARD_VERSION = "1.0.9";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -276,10 +276,10 @@ class EvoluteCard extends HTMLElement {
           ${this._dataTimeRow()}
 
           <div class="bars">
-            ${hasFuel ? this._bar("mdi:fuel", fuelPct) : ""}
-            ${this._bar("mdi:lightning-bolt", battPct)}
-            ${hasFuel ? this._barVal(num("fuel_pct", 0) + "% / " + num("remains_mileage_fuel", 0) + "км") : ""}
-            ${this._barVal(num("battery_pct", 0) + "% / " + num("remains_mileage", 0) + "км")}
+            ${hasFuel ? this._bar("mdi:fuel", fuelPct, "fuel_pct") : ""}
+            ${this._bar("mdi:lightning-bolt", battPct, "battery_pct")}
+            ${hasFuel ? this._barVal(num("fuel_pct", 0) + "% / " + num("remains_mileage_fuel", 0) + "км", "fuel_pct") : ""}
+            ${this._barVal(num("battery_pct", 0) + "% / " + num("remains_mileage", 0) + "км", "battery_pct")}
           </div>
 
           ${cells.length ? `<div class="cells">${cells.map(([r, ic, txt, center]) => `
@@ -309,11 +309,11 @@ class EvoluteCard extends HTMLElement {
     this._syncMap();
   }
 
-  _bar(icon, pct) {
-    return `<div class="bar"><ha-icon icon="${icon}"></ha-icon>
+  _bar(icon, pct, role) {
+    return `<div class="bar" data-act="mi" data-role="${role}"><ha-icon icon="${icon}"></ha-icon>
       <div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
   }
-  _barVal(txt) { return `<div class="barval">${txt}</div>`; }
+  _barVal(txt, role) { return `<div class="barval" data-act="mi" data-role="${role}">${txt}</div>`; }
 
   // Cabin: "current° → target°". Current is colored vs the climate target:
   //   red if hotter than target by >2°, blue if colder than target,
@@ -546,12 +546,12 @@ class EvoluteCard extends HTMLElement {
       .model .m { font-size: 22px; font-weight: 500; color: var(--primary-text-color); }
       .model .vin { font-size: 13px; color: var(--secondary-text-color); }
       .bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; align-items: center; }
-      .bar { display: flex; align-items: center; gap: 10px; }
+      .bar { display: flex; align-items: center; gap: 10px; cursor: pointer; }
       .bar ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
       .track { height: 6px; flex: 1; border-radius: 6px; overflow: hidden;
                background: var(--divider-color, #d5d8de); }
       .fill { height: 100%; background: var(--primary-color); }
-      .barval { font-size: 20px; font-weight: 500; }
+      .barval { font-size: 20px; font-weight: 500; cursor: pointer; }
       .cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
       .cell { cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
       .cell--center { align-items: center; text-align: center; }
