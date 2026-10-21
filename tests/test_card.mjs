@@ -36,7 +36,7 @@ async function screen(t, phase = "success", service = async () => {}) {
 
 test("uses the entity keys produced by current HA and displays battery temperature / percent / range", async (t) => {
   const { root, card, hass } = await screen(t);
-  assert.equal(contract.integration_version, "1.2.19b0");
+  assert.equal(contract.integration_version, "1.2.20b0");
   assert.equal(card._eid("lock"), entity(hass, "central_lock"));
   assert.match(root.querySelector('.barval[data-role="battery_pct"]').textContent, /19°C \/ 92% \/ 101 км/);
   setState(hass, "battery_temp", "21");
