@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.2.19b0";
+const EVOLUTE_CARD_VERSION = "1.2.20b0";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -21,6 +21,7 @@ const KEYS = {
   inboard_temp: "inboard_temp",
   climate_target: "climate_target_temp",
   data_time: "sensor_time",
+  signal_percent: "signal_percent",
   vin: "vin",
   command_status: "command_status",
   firmware_mismatch: "firmware_mismatch",
@@ -231,7 +232,7 @@ class EvoluteCard extends HTMLElement {
 
   _signature() {
     // Repaint only when something visible changes.
-    const roles = ["odometer", "online", "charging_gun", "battery_pct", "battery_temp", "remains_mileage",
+    const roles = ["odometer", "online", "charging_gun", "signal_percent", "battery_pct", "battery_temp", "remains_mileage",
       "fuel_pct", "remains_mileage_fuel", "coolant_temp", "voltage_12v",
       "outside_temp", "inboard_temp", "climate_target", "data_time", "lock", "trunk", "heating", "cooling",
       "trunk_open", "trunk_close", "blink", "heating_on", "heating_off", "cooling_on", "cooling_off",
@@ -293,6 +294,7 @@ class EvoluteCard extends HTMLElement {
         <div class="wrap">
           <div class="head">
             <div class="odo" data-act="mi" data-role="odometer">
+              ${this._signalBadge()}
               ${this._val("charging_gun") === "on"
                 ? `<ha-icon class="plug" data-act="mi" data-role="charging_gun" icon="mdi:ev-plug-type2"
                     role="img" aria-label="Зарядный пистолет вставлен" title="Зарядный пистолет вставлен" style="color:${dot}"></ha-icon>`
@@ -353,6 +355,18 @@ class EvoluteCard extends HTMLElement {
       <div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
   }
   _barVal(txt, role) { return `<div class="barval" data-act="mi" data-role="${role}">${txt}</div>`; }
+
+  _signalBadge() {
+    if (!this._has("signal_percent")) return "";
+    const raw = this._val("signal_percent");
+    const value = typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
+    const valid = Number.isFinite(value) && value >= 0 && value <= 100;
+    const label = valid ? `${Math.round(value)}%` : "—%";
+    return `<span class="signal" data-act="mi" data-role="signal_percent"
+        title="Уровень сигнала: ${valid ? label : "нет данных"}">
+      <ha-icon icon="${valid ? "mdi:signal" : "mdi:signal-off"}"></ha-icon><span>${label}</span>
+    </span>`;
+  }
 
   _commandRow() {
     const status = this._val("command_status");
@@ -583,13 +597,16 @@ class EvoluteCard extends HTMLElement {
     return `<style>
       ha-card { overflow: hidden; }
       .wrap { padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
-      .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-      .odo { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 24px; font-weight: 600;
+      .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+      .odo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; cursor: pointer; font-size: 24px; font-weight: 600;
              color: var(--primary-text-color); }
       .odo ha-icon { --mdc-icon-size: 24px; color: var(--state-icon-color, var(--primary-color)); }
+      .signal { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;
+                font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--secondary-text-color); }
+      .odo .signal ha-icon { --mdc-icon-size: 18px; color: inherit; }
       .dot { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto; }
       .odo .plug { --mdc-icon-size: 24px; flex-shrink: 0; }
-      .model { text-align: right; line-height: 1.1; }
+      .model { margin-left: auto; max-width: 100%; overflow-wrap: anywhere; text-align: right; line-height: 1.1; }
       .model .m { font-size: 22px; font-weight: 500; color: var(--primary-text-color); }
       .model .vin { font-size: 13px; color: var(--secondary-text-color); }
       .bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; align-items: center; container-type: inline-size; }

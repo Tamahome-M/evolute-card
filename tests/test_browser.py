@@ -36,10 +36,14 @@ async def main():
                 await page.add_script_tag(path=str(ROOT / "dist/evolute-card.js"))
                 await page.evaluate("""hass => {
                   window.serviceCalls=[];
+                  window.moreInfoEvents=[];
                   hass.callService=(...args)=>{serviceCalls.push(args);return new Promise(resolve=>window.finishService=resolve);};
+                  hass.devices['test-car'].serial_number='TESTVIN0123456789';
+                  hass.devices['test-car'].name='Evolute i-SPACE';
                   window.hassData=hass;
                   window.card=document.createElement('evolute-card');
                   card.setConfig({}); document.body.append(card); card.hass=hass;
+                  card.addEventListener('hass-more-info',e=>moreInfoEvents.push(e.detail.entityId));
                   window.setState=(key,state,attrs={})=>{
                     const id=Object.values(hassData.entities).find(e=>e.translation_key===key).entity_id;
                     hassData.states[id]={...hassData.states[id],state,attributes:{...hassData.states[id]?.attributes,...attrs}};
@@ -49,8 +53,22 @@ async def main():
                 assert "19°C / 92% / 101 км" in await page.locator('.barval[data-role="battery_pct"]').inner_text()
                 assert await page.locator(".odo .plug").count() == 1
                 assert await page.locator(".odo .dot").count() == 0
+                assert await page.locator(".signal > span").inner_text() == "61%"
+                signal_box = await page.locator(".signal").bounding_box()
+                status_box = await page.locator(".odo .plug").bounding_box()
+                assert signal_box["x"] + signal_box["width"] <= status_box["x"]
+                await page.locator(".signal").click()
+                expected_signal = await page.evaluate("Object.values(hassData.entities).find(e=>e.translation_key==='signal_percent').entity_id")
+                assert await page.evaluate("moreInfoEvents") == [expected_signal]
+                assert await page.evaluate("serviceCalls.length") == 0
+                await page.evaluate("setState('signal_percent','0')")
+                assert await page.locator(".signal > span").inner_text() == "0%"
+                await page.evaluate("setState('signal_percent','unavailable')")
+                assert await page.locator(".signal > span").inner_text() == "—%"
+                await page.evaluate("setState('signal_percent','61')")
                 assert await page.locator('[aria-current="step"]').inner_text() == "Выполнена"
                 assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                assert await page.locator(".head").evaluate("el=>el.scrollWidth<=el.clientWidth")
                 battery = await page.locator('.barval[data-role="battery_pct"]').evaluate("el=>({scroll:el.scrollWidth,width:el.clientWidth})")
                 assert battery["scroll"] <= battery["width"] + 1, battery
                 out = ROOT / "artifacts" / str(width)
@@ -98,7 +116,7 @@ async def main():
                 assert await page.evaluate("serviceCalls.length") == 7
                 await page.screenshot(path=str(out / "climate.png"), full_page=True)
                 await page.close()
-                print(f"Card at {width}px: layout, receipts, lock and six mode actions verified")
+                print(f"Card at {width}px: signal updates/more-info, header layout, receipts and controls verified")
         finally:
             await browser.close()
 
