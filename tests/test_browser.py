@@ -61,7 +61,7 @@ async def main():
                 assert await page.evaluate("serviceCalls.length") == 1
                 assert await page.evaluate("serviceCalls[0][0] + '.' + serviceCalls[0][1]") == "lock.unlock"
                 await page.evaluate("setState('central_lock','unlocking');setState('command_status','pending',{command:'centralLockingOff',command_id:'next'});")
-                assert await page.locator('button[data-role="lock"]').inner_text() == "Открывается…"
+                assert await page.locator('button[data-role="lock"] span').inner_text() == "Открывается…"
                 assert await page.locator('[aria-current="step"]').inner_text() == "Отправлена"
                 await page.evaluate("setState('command_status','delivered')")
                 assert await page.locator('[aria-current="step"]').inner_text() == "Доставлена"
