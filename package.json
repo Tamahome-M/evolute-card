@@ -1,0 +1,10 @@
+{
+  "name": "evolute-card",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.mjs"
+  },
+  "devDependencies": {
+    "happy-dom": "21.0.3"
+  }
+}
