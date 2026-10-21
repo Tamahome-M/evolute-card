@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.0.9";
+const EVOLUTE_CARD_VERSION = "1.2.18b0";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -11,6 +11,7 @@ const KEYS = {
   // sensors
   odometer: "odometer",
   battery_pct: "battery_pct",
+  battery_temp: "battery_temp",
   remains_mileage: "remains_mileage",
   fuel_pct: "fuel_pct",
   remains_mileage_fuel: "remains_mileage_fuel",
@@ -21,8 +22,13 @@ const KEYS = {
   climate_target: "climate_target_temp",
   data_time: "sensor_time",
   vin: "vin",
+  command_status: "command_status",
+  firmware_mismatch: "firmware_mismatch",
+  settings_mismatch: "settings_mismatch",
+  trip_preparation: "trip_preparation",
   // binary sensors
   online: "online",
+  charging_gun: "charging_gun",
   trunk: "trunk",
   prepare_running: "prepare_running",
   // controls
@@ -32,6 +38,8 @@ const KEYS = {
   blink: "blink",
   prepare_on: "prepare_on",
   prepare_off: "prepare_off",
+  trip_prepare_on: "trip_prepare_on",
+  trip_prepare_off: "trip_prepare_off",
   // prepare params (numbers)
   p_temp: "prepare_temp",
   p_duration: "prepare_duration",
@@ -45,6 +53,15 @@ const KEYS = {
 };
 
 const UNAVAILABLE = new Set(["unavailable", "unknown", "none", "", undefined, null]);
+const COMMAND_BUSY = new Set(["sending", "pending", "delivered"]);
+const COMMAND_NAMES = {
+  centralLockingOn: "Закрытие замка", centralLockingOff: "Открытие замка",
+  trunkOpen: "Открытие багажника", trunkClose: "Закрытие багажника",
+  heatingOn: "Включение прогрева", heatingOff: "Выключение прогрева",
+  coolingOn: "Включение охлаждения", coolingOff: "Выключение охлаждения",
+  search: "Поиск автомобиля", tripPreparationOn: "Подготовка к поездке",
+  tripPreparationOff: "Остановка подготовки", PREPARE: "Предпрогрев", CANCEL: "Остановка предпрогрева",
+};
 
 class EvoluteCard extends HTMLElement {
   constructor() {
@@ -56,6 +73,8 @@ class EvoluteCard extends HTMLElement {
     this._sig = "";      // render signature to skip redundant repaints
     this._built = false;
     this._mapEl = null;
+    this._requestPending = false;
+    this._actionError = "";
   }
 
   setConfig(config) {
@@ -172,14 +191,42 @@ class EvoluteCard extends HTMLElement {
 
   _press(role) {
     const id = this._eid(role);
-    if (id) this._hass.callService("button", "press", { entity_id: id });
+    if (id && this._st(role)?.state !== "unavailable") {
+      return this._runCommand("button", "press", id);
+    }
   }
 
   _lockToggle() {
     const s = this._st("lock");
-    if (!s) return;
+    if (!s || !["locked", "unlocked"].includes(s.state)) return;
     const svc = s.state === "locked" ? "unlock" : "lock";
-    this._hass.callService("lock", svc, { entity_id: s.entity_id });
+    return this._runCommand("lock", svc, s.entity_id);
+  }
+
+  _busy() {
+    return this._requestPending || COMMAND_BUSY.has(this._val("command_status"))
+      || ["locking", "unlocking"].includes(this._val("lock"));
+  }
+
+  _commandsDisabled() {
+    return this._busy() || this._val("online") !== "on"
+      || UNAVAILABLE.has(this._val("command_status"));
+  }
+
+  async _runCommand(domain, service, entityId) {
+    if (this._commandsDisabled()) return;
+    this._requestPending = true;
+    this._actionError = "";
+    this._render();
+    try {
+      await this._hass.callService(domain, service, { entity_id: entityId });
+    } catch (error) {
+      this._actionError = typeof error?.message === "string"
+        ? error.message : "Не удалось выполнить команду. Проверьте состояние автомобиля.";
+    } finally {
+      this._requestPending = false;
+      this._render();
+    }
   }
 
   _setNumber(role, value) {
@@ -212,11 +259,19 @@ class EvoluteCard extends HTMLElement {
 
   _signature() {
     // Repaint only when something visible changes.
-    const roles = ["odometer", "online", "battery_pct", "remains_mileage",
+    const roles = ["odometer", "online", "charging_gun", "battery_pct", "battery_temp", "remains_mileage",
       "fuel_pct", "remains_mileage_fuel", "coolant_temp", "voltage_12v",
       "outside_temp", "inboard_temp", "climate_target", "data_time", "lock", "trunk", "prepare_running",
-      "p_temp", "p_duration", "p_fl", "p_fr", "p_rl", "p_rr", "p_wheel"];
-    return this._deviceId + "|" + roles.map((r) => this._val(r)).join(",");
+      "p_temp", "p_duration", "p_fl", "p_fr", "p_rl", "p_rr", "p_wheel",
+      "trunk_open", "trunk_close", "blink", "prepare_on", "prepare_off",
+      "trip_preparation", "trip_prepare_on", "trip_prepare_off",
+      "command_status", "firmware_mismatch", "settings_mismatch"];
+    return JSON.stringify([
+      this._deviceId, roles.map((r) => [this._eid(r), this._val(r)]),
+      this._st("command_status")?.attributes, this._requestPending, this._actionError,
+      this._st("firmware_mismatch")?.attributes, this._st("settings_mismatch")?.attributes,
+      this._config, this._prepOpen,
+    ]);
   }
 
   _render() {
@@ -247,6 +302,9 @@ class EvoluteCard extends HTMLElement {
 
     const lockS = this._st("lock");
     const locked = lockS && lockS.state === "locked";
+    const lockLabel = {
+      locked: "Закрыт", unlocked: "Открыт", locking: "Закрывается…", unlocking: "Открывается…",
+    }[lockS?.state] || "Состояние замка неизвестно";
     const trunkOpen = this._val("trunk") === "on";
     const preparing = this._val("prepare_running") === "on";
 
@@ -263,7 +321,10 @@ class EvoluteCard extends HTMLElement {
         <div class="wrap">
           <div class="head">
             <div class="odo" data-act="mi" data-role="odometer">
-              <span class="dot" style="background:${dot}"></span>
+              ${this._val("charging_gun") === "on"
+                ? `<ha-icon class="plug" data-act="mi" data-role="charging_gun" icon="mdi:ev-plug-type2"
+                    role="img" aria-label="Зарядный пистолет вставлен" title="Зарядный пистолет вставлен" style="color:${dot}"></ha-icon>`
+                : `<span class="dot" title="${online ? "Машина онлайн" : "Машина оффлайн"}" style="background:${dot}"></span>`}
               <ha-icon icon="mdi:counter"></ha-icon>
               <span>${num("odometer", 0)} км</span>
             </div>
@@ -279,7 +340,7 @@ class EvoluteCard extends HTMLElement {
             ${hasFuel ? this._bar("mdi:fuel", fuelPct, "fuel_pct") : ""}
             ${this._bar("mdi:lightning-bolt", battPct, "battery_pct")}
             ${hasFuel ? this._barVal(num("fuel_pct", 0) + "% / " + num("remains_mileage_fuel", 0) + "км", "fuel_pct") : ""}
-            ${this._barVal(num("battery_pct", 0) + "% / " + num("remains_mileage", 0) + "км", "battery_pct")}
+            ${this._barVal(num("battery_temp", 0) + "°C / " + num("battery_pct", 0) + "% / " + num("remains_mileage", 0) + " км", "battery_pct")}
           </div>
 
           ${cells.length ? `<div class="cells">${cells.map(([r, ic, txt, center]) => `
@@ -290,14 +351,19 @@ class EvoluteCard extends HTMLElement {
 
           <div class="ctrls">
             ${lockS ? this._btn("lock", locked ? "mdi:lock" : "mdi:lock-open-variant",
-              locked ? "Закрыт" : "Открыт", locked ? "" : "warn") : ""}
+              lockLabel, locked ? "" : "warn") : ""}
             ${this._has("trunk_open") ? this._btn("trunk",
               "mdi:car-back", trunkOpen ? "Багажник открыт" : "Багажник", trunkOpen ? "warn" : "") : ""}
             ${this._has("blink") ? this._btn("blink", "mdi:car-light-high", "Сигнал и фары", "") : ""}
             ${this._has("prepare_on") ? this._btn("prepare", "mdi:car-clock",
               preparing ? "Предпрогрев…" : "Предпрогрев", preparing ? "active" : "") : ""}
+            ${this._has("trip_prepare_on") ? this._btn("trip", "mdi:car-cog",
+              this._val("trip_preparation") === "on" ? "Остановить подготовку" : "Подготовить к поездке",
+              this._val("trip_preparation") === "on" ? "active" : "") : ""}
           </div>
 
+          ${this._commandRow()}
+          ${this._diagnosticRows()}
           ${this._preparePanel()}
         </div>
         ${this._config.show_map && this._has("tracker") ? `<div class="map" id="evmap"></div>` : ""}
@@ -314,6 +380,44 @@ class EvoluteCard extends HTMLElement {
       <div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
   }
   _barVal(txt, role) { return `<div class="barval" data-act="mi" data-role="${role}">${txt}</div>`; }
+
+  _commandRow() {
+    const status = this._val("command_status");
+    if (UNAVAILABLE.has(status)) {
+      return `<div class="command-note">Для управления обновите интеграцию Evolute до версии ${EVOLUTE_CARD_VERSION}.</div>`;
+    }
+    const result = this._st("command_status")?.attributes || {};
+    const waiting = this._requestPending && !COMMAND_BUSY.has(status);
+    const note = waiting ? "Ожидаем ответ…" : this._actionError ? null : {
+      sending: "Отправляем команду…", error: "Автомобиль не подтвердил выполнение команды.",
+      timeout: "Подтверждение не получено вовремя. Проверьте состояние автомобиля.",
+      unconfirmed: "Результат неизвестен. Проверьте состояние автомобиля перед повторной командой.",
+      legacy_sent: "Команда отправлена. Подтверждение выполнения недоступно.",
+    }[status];
+    if (status === "idle" && !this._requestPending && !this._actionError) return "";
+    const stage = waiting || this._actionError ? undefined : { pending: 0, delivered: 1, success: 2 }[status];
+    return `<div class="command-status" role="status" aria-live="polite">
+      <div class="command-title">${this._escape(!waiting && !this._actionError && COMMAND_NAMES[result.command] || "Команда автомобиля")}</div>
+      ${stage !== undefined ? `<ol class="command-steps">${["Отправлена", "Доставлена", "Выполнена"].map((label, i) =>
+        `<li class="${i <= stage ? "reached" : ""}" ${i === stage ? 'aria-current="step"' : ""}>${label}</li>`).join("")}</ol>` : ""}
+      ${note ? `<div class="command-note">${note}</div>` : ""}
+      ${this._requestPending && stage === undefined && !note ? '<div class="command-note">Ожидаем ответ…</div>' : ""}
+      ${this._actionError ? `<div class="command-error" role="alert">${this._escape(this._actionError)}</div>` : ""}
+    </div>`;
+  }
+
+  _diagnosticRows() {
+    return [
+      ["firmware_mismatch", "Версия прошивки отличается от профиля"],
+      ["settings_mismatch", "Настройки машины отличаются от профиля"],
+    ].filter(([role]) => this._val(role) === "on").map(([role, title]) => {
+      const attributes = this._st(role)?.attributes || {};
+      return `<div class="diagnostic" data-act="mi" data-role="${role}">
+        <ha-icon icon="mdi:alert-outline"></ha-icon><div>${title}
+        <div class="command-note">На машине: ${this._escape(attributes.actual || "—")}<br>
+        В профиле: ${this._escape(attributes.expected || "—")}</div></div></div>`;
+    }).join("");
+  }
 
   // Cabin: "current° → target°". Current is colored vs the climate target:
   //   red if hotter than target by >2°, blue if colder than target,
@@ -393,7 +497,14 @@ class EvoluteCard extends HTMLElement {
   }
 
   _btn(role, icon, label, cls) {
-    return `<button class="ctrl ${cls}" data-act="ctrl" data-role="${role}">
+    const targetRole = role === "trunk" ? (this._val("trunk") === "on" ? "trunk_close" : "trunk_open")
+      : role === "prepare" ? (this._val("prepare_running") === "on" ? "prepare_off" : "prepare_on")
+      : role === "trip" ? (this._val("trip_preparation") === "on" ? "trip_prepare_off" : "trip_prepare_on") : role;
+    const state = this._val(targetRole);
+    const disabled = this._commandsDisabled() || state === "unavailable"
+      || (role === "lock" && !["locked", "unlocked"].includes(state))
+      || (role === "trunk" && UNAVAILABLE.has(this._val("trunk")));
+    return `<button class="ctrl ${cls}" data-act="ctrl" data-role="${role}" ${disabled ? "disabled" : ""}>
       <ha-icon icon="${icon}"></ha-icon><span>${label}</span></button>`;
   }
 
@@ -453,6 +564,7 @@ class EvoluteCard extends HTMLElement {
   }
 
   _ctrl(role) {
+    if (this._commandsDisabled()) return;
     switch (role) {
       case "lock": this._lockToggle(); break;
       case "trunk":
@@ -460,6 +572,8 @@ class EvoluteCard extends HTMLElement {
       case "blink": this._press("blink"); break;
       case "prepare":
         this._press(this._val("prepare_running") === "on" ? "prepare_off" : "prepare_on"); break;
+      case "trip":
+        this._press(this._val("trip_preparation") === "on" ? "trip_prepare_off" : "trip_prepare_on"); break;
     }
   }
 
@@ -542,16 +656,18 @@ class EvoluteCard extends HTMLElement {
              color: var(--primary-text-color); }
       .odo ha-icon { --mdc-icon-size: 24px; color: var(--state-icon-color, var(--primary-color)); }
       .dot { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto; }
+      .odo .plug { --mdc-icon-size: 24px; flex-shrink: 0; }
       .model { text-align: right; line-height: 1.1; }
       .model .m { font-size: 22px; font-weight: 500; color: var(--primary-text-color); }
       .model .vin { font-size: 13px; color: var(--secondary-text-color); }
-      .bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; align-items: center; }
+      .bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; align-items: center; container-type: inline-size; }
       .bar { display: flex; align-items: center; gap: 10px; cursor: pointer; }
       .bar ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
       .track { height: 6px; flex: 1; border-radius: 6px; overflow: hidden;
                background: var(--divider-color, #d5d8de); }
       .fill { height: 100%; background: var(--primary-color); }
       .barval { font-size: 20px; font-weight: 500; cursor: pointer; }
+      .barval[data-role="battery_pct"] { font-size: clamp(12px, 3.8cqw, 18px); white-space: nowrap; }
       .cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
       .cell { cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
       .cell--center { align-items: center; text-align: center; }
@@ -566,6 +682,7 @@ class EvoluteCard extends HTMLElement {
               font-size: 12px; }
       .ctrl ha-icon { --mdc-icon-size: 24px; }
       .ctrl:hover { filter: brightness(0.97); }
+      .ctrl:disabled { opacity: .5; cursor: default; }
       .ctrl.warn ha-icon { color: var(--warning-color, #e08b00); }
       .ctrl.active { background: color-mix(in srgb, var(--primary-color) 22%, transparent); }
       .ctrl.active ha-icon { color: var(--primary-color); }
@@ -591,6 +708,15 @@ class EvoluteCard extends HTMLElement {
               font-size: 12px; color: var(--secondary-text-color); }
       .foot ha-icon { --mdc-icon-size: 16px; }
       .map { margin: 4px 0 0; }
+      .command-status { border: 1px solid var(--divider-color, #ddd); border-radius: 10px; padding: 10px; }
+      .command-title { font-size: 13px; font-weight: 600; }
+      .command-steps { display: flex; gap: 8px; list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; }
+      .command-steps li { flex: 1; border-top: 3px solid var(--divider-color, #ddd); padding-top: 5px; color: var(--secondary-text-color); }
+      .command-steps .reached { border-color: var(--primary-color); color: var(--primary-text-color); }
+      .command-note { margin-top: 5px; font-size: 12px; color: var(--secondary-text-color); }
+      .command-error { margin-top: 6px; font-size: 13px; color: var(--error-color, #db4437); }
+      .diagnostic { display: flex; gap: 8px; padding: 8px; border-radius: 8px; background: var(--secondary-background-color, #eee); color: var(--warning-color, #e08b00); cursor: pointer; font-size: 13px; }
+      .diagnostic ha-icon { flex-shrink: 0; }
     </style>`;
   }
 }
