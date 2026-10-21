@@ -27,7 +27,7 @@ async function screen(t, phase = "success", service = async () => {}) {
   const calls = [];
   hass.callService = (...args) => { calls.push(structuredClone(args)); return service(...args); };
   const card = window.document.createElement("evolute-card");
-  card.setConfig({ hide_prepare: false });
+  card.setConfig({});
   window.document.body.append(card);
   card.hass = hass;
   await flush();
@@ -36,7 +36,7 @@ async function screen(t, phase = "success", service = async () => {}) {
 
 test("uses the entity keys produced by current HA and displays battery temperature / percent / range", async (t) => {
   const { root, card, hass } = await screen(t);
-  assert.equal(contract.integration_version, "1.2.18b0");
+  assert.equal(contract.integration_version, "1.2.19b0");
   assert.equal(card._eid("lock"), entity(hass, "central_lock"));
   assert.match(root.querySelector('.barval[data-role="battery_pct"]').textContent, /19°C \/ 92% \/ 101 км/);
   setState(hass, "battery_temp", "21");
@@ -135,5 +135,47 @@ test("unavailable buttons and offline vehicles cannot send commands", async (t) 
   setState(hass, "online", "off");
   card.hass = hass;
   card._lockToggle();
+  assert.equal(calls.length, 0);
+});
+
+test("heating, cooling and trip preparation use the current buttons for both directions", async (t) => {
+  const { root, card, hass, calls } = await screen(t);
+  const modes = [
+    ["heating", "heating", "heating_on", "heating_off"],
+    ["cooling", "cooling", "cooling_on", "cooling_off"],
+    ["trip", "trip_preparation", "trip_prepare_on", "trip_prepare_off"],
+  ];
+  for (const [role, key, on, off] of modes) {
+    setState(hass, key, "off");
+    card.hass = hass;
+    const button = root.querySelector(`button[data-role="${role}"]`);
+    assert.equal(button.disabled, false);
+    button.click();
+    await flush();
+    assert.deepEqual(calls.at(-1), ["button", "press", { entity_id: entity(hass, on) }]);
+    setState(hass, key, "on");
+    card.hass = hass;
+    assert.match(root.querySelector(`button[data-role="${role}"] span`).textContent, /Выключить|Остановить/);
+    root.querySelector(`button[data-role="${role}"]`).click();
+    await flush();
+    assert.deepEqual(calls.at(-1), ["button", "press", { entity_id: entity(hass, off) }]);
+  }
+  assert.equal(calls.length, 6);
+  assert.equal(root.querySelector("details.prep"), null);
+  assert.equal(root.querySelector('button[data-role="prepare"]'), null);
+  assert.doesNotMatch(root.textContent, /Предпрогрев|Параметры предпрогрева/);
+});
+
+test("unknown mode state or unavailable stop button cannot trigger a mode command", async (t) => {
+  const { root, card, hass, calls } = await screen(t);
+  setState(hass, "heating", "unknown");
+  card.hass = hass;
+  assert.ok(root.querySelector('button[data-role="heating"]').disabled);
+  await card._ctrl("heating");
+  setState(hass, "heating", "on");
+  setState(hass, "heating_off", "unavailable");
+  card.hass = hass;
+  assert.ok(root.querySelector('button[data-role="heating"]').disabled);
+  await card._ctrl("heating");
   assert.equal(calls.length, 0);
 });

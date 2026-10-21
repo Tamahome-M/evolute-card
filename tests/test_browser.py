@@ -73,8 +73,32 @@ async def main():
                 assert await page.locator(".odo .dot").count() == 1
                 assert await page.locator(".odo .plug").count() == 0
                 assert await page.evaluate("serviceCalls.length") == 1
+                assert await page.locator('button[data-role="prepare"], details.prep').count() == 0
+                # Click the actual mode buttons in both directions, including
+                # their busy/receipt lifecycle. No vehicle request is made.
+                for role, state_key in (("heating", "heating"), ("cooling", "cooling"), ("trip", "trip_preparation")):
+                    prefix = "trip_prepare" if role == "trip" else role
+                    await page.evaluate("setState('central_lock','locked')")
+                    for value, direction in (("off", "on"), ("on", "off")):
+                        await page.evaluate("([key,value])=>setState(key,value)", [state_key, value])
+                        action = page.locator(f'button[data-role="{role}"]')
+                        assert await action.is_enabled()
+                        await action.click()
+                        expected_id = await page.evaluate(
+                            "key=>Object.values(hassData.entities).find(e=>e.translation_key===key).entity_id",
+                            f"{prefix}_{direction}",
+                        )
+                        assert await page.evaluate("serviceCalls.at(-1)") == ["button", "press", {"entity_id": expected_id}]
+                        assert await action.is_disabled()
+                        await page.evaluate("setState('command_status','pending')")
+                        assert await page.locator('[aria-current="step"]').inner_text() == "Отправлена"
+                        await page.evaluate("([key,value])=>{setState(key,value);setState('command_status','success');finishService();}",
+                                            [state_key, "on" if direction == "on" else "off"])
+                        await page.wait_for_function("!card._requestPending")
+                assert await page.evaluate("serviceCalls.length") == 7
+                await page.screenshot(path=str(out / "climate.png"), full_page=True)
                 await page.close()
-                print(f"Card at {width}px: layout, command progress and one service call verified")
+                print(f"Card at {width}px: layout, receipts, lock and six mode actions verified")
         finally:
             await browser.close()
 
