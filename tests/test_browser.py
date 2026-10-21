@@ -60,6 +60,13 @@ async def main():
                 await page.locator(".signal").click()
                 expected_signal = await page.evaluate("Object.values(hassData.entities).find(e=>e.translation_key==='signal_percent').entity_id")
                 assert await page.evaluate("moreInfoEvents") == [expected_signal]
+                for key in ("battery_temp", "battery_pct", "remains_mileage"):
+                    await page.locator(f'.battery-values span[data-role="{key}"]').click()
+                    expected = await page.evaluate(
+                        "key=>Object.values(hassData.entities).find(e=>e.translation_key===key).entity_id", key,
+                    )
+                    assert await page.evaluate("moreInfoEvents.at(-1)") == expected
+                assert await page.evaluate("moreInfoEvents.length") == 4
                 assert await page.evaluate("serviceCalls.length") == 0
                 await page.evaluate("setState('signal_percent','0')")
                 assert await page.locator(".signal > span").inner_text() == "0%"
@@ -116,7 +123,7 @@ async def main():
                 assert await page.evaluate("serviceCalls.length") == 7
                 await page.screenshot(path=str(out / "climate.png"), full_page=True)
                 await page.close()
-                print(f"Card at {width}px: signal updates/more-info, header layout, receipts and controls verified")
+                print(f"Card at {width}px: signal and battery histories, layout, receipts and controls verified")
         finally:
             await browser.close()
 

@@ -314,7 +314,7 @@ class EvoluteCard extends HTMLElement {
             ${hasFuel ? this._bar("mdi:fuel", fuelPct, "fuel_pct") : ""}
             ${this._bar("mdi:lightning-bolt", battPct, "battery_pct")}
             ${hasFuel ? this._barVal(num("fuel_pct", 0) + "% / " + num("remains_mileage_fuel", 0) + "км", "fuel_pct") : ""}
-            ${this._barVal(num("battery_temp", 0) + "°C / " + num("battery_pct", 0) + "% / " + num("remains_mileage", 0) + " км", "battery_pct")}
+            ${this._batteryValues()}
           </div>
 
           ${cells.length ? `<div class="cells">${cells.map(([r, ic, txt, center]) => `
@@ -355,6 +355,13 @@ class EvoluteCard extends HTMLElement {
       <div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
   }
   _barVal(txt, role) { return `<div class="barval" data-act="mi" data-role="${role}">${txt}</div>`; }
+
+  _batteryValues() {
+    const fields = [["battery_temp", "°C"], ["battery_pct", "%"], ["remains_mileage", " км"]];
+    const values = fields.map(([role, unit]) =>
+      `<span data-act="mi" data-role="${role}">${this._num(role, 0) ?? "—"}${unit}</span>`);
+    return `<div class="barval battery-values" data-role="battery_pct">${values.join(" / ")}</div>`;
+  }
 
   _signalBadge() {
     if (!this._has("signal_percent")) return "";
@@ -617,6 +624,8 @@ class EvoluteCard extends HTMLElement {
       .fill { height: 100%; background: var(--primary-color); }
       .barval { font-size: 20px; font-weight: 500; cursor: pointer; }
       .barval[data-role="battery_pct"] { font-size: clamp(12px, 3.8cqw, 18px); white-space: nowrap; }
+      .battery-values { cursor: default; }
+      .battery-values [data-act] { cursor: pointer; }
       .cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
       .cell { cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
       .cell--center { align-items: center; text-align: center; }
