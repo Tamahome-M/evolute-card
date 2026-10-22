@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.2.21b0";
+const EVOLUTE_CARD_VERSION = "1.2.21";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
