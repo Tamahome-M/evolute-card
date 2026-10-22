@@ -3,7 +3,7 @@
  *  so it works regardless of car model, language or auto-generated entity_ids.
  *  No build step, no dependencies. MIT License.
  */
-const EVOLUTE_CARD_VERSION = "1.2.20b0";
+const EVOLUTE_CARD_VERSION = "1.2.21b0";
 
 // translation_key -> role. These keys come from the integration's entity
 // descriptions and are stable across installs and locales.
@@ -29,6 +29,7 @@ const KEYS = {
   trip_preparation: "trip_preparation",
   // binary sensors
   online: "online",
+  parked: "parked",
   charging_gun: "charging_gun",
   trunk: "trunk",
   heating: "heating",
@@ -232,7 +233,7 @@ class EvoluteCard extends HTMLElement {
 
   _signature() {
     // Repaint only when something visible changes.
-    const roles = ["odometer", "online", "charging_gun", "signal_percent", "battery_pct", "battery_temp", "remains_mileage",
+    const roles = ["odometer", "online", "parked", "charging_gun", "signal_percent", "battery_pct", "battery_temp", "remains_mileage",
       "fuel_pct", "remains_mileage_fuel", "coolant_temp", "voltage_12v",
       "outside_temp", "inboard_temp", "climate_target", "data_time", "lock", "trunk", "heating", "cooling",
       "trunk_open", "trunk_close", "blink", "heating_on", "heating_off", "cooling_on", "cooling_off",
@@ -298,7 +299,10 @@ class EvoluteCard extends HTMLElement {
               ${this._val("charging_gun") === "on"
                 ? `<ha-icon class="plug" data-act="mi" data-role="charging_gun" icon="mdi:ev-plug-type2"
                     role="img" aria-label="Зарядный пистолет вставлен" title="Зарядный пистолет вставлен" style="color:${dot}"></ha-icon>`
-                : `<span class="dot" title="${online ? "Машина онлайн" : "Машина оффлайн"}" style="background:${dot}"></span>`}
+                : online && this._val("parked") === "off"
+                  ? `<ha-icon class="driving" data-act="mi" data-role="parked" icon="mdi:car"
+                      role="img" aria-label="В пути" title="В пути" style="color:${dot}"></ha-icon>`
+                  : `<span class="dot" title="${online ? "Машина онлайн" : "Машина оффлайн"}" style="background:${dot}"></span>`}
               <ha-icon icon="mdi:counter"></ha-icon>
               <span>${num("odometer", 0)} км</span>
             </div>
@@ -612,7 +616,7 @@ class EvoluteCard extends HTMLElement {
                 font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--secondary-text-color); }
       .odo .signal ha-icon { --mdc-icon-size: 18px; color: inherit; }
       .dot { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto; }
-      .odo .plug { --mdc-icon-size: 24px; flex-shrink: 0; }
+      .odo .plug, .odo .driving { --mdc-icon-size: 24px; flex-shrink: 0; }
       .model { margin-left: auto; max-width: 100%; overflow-wrap: anywhere; text-align: right; line-height: 1.1; }
       .model .m { font-size: 22px; font-weight: 500; color: var(--primary-text-color); }
       .model .vin { font-size: 13px; color: var(--secondary-text-color); }
